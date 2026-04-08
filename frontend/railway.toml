@@ -1,0 +1,8 @@
+[build]
+builder = "NIXPACKS"
+
+[build.buildCommand]
+cmd = "cd frontend && npm ci && npm run build"
+
+[deploy]
+startCommand = "cd frontend && npx serve -s dist -l $PORT"
