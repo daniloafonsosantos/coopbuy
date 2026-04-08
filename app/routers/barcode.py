@@ -1,23 +1,138 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 import httpx
+import json
+import logging
 
 from app.database import get_db
 from app.models import Product, Market, Price
+from app.config import settings
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/barcode", tags=["barcode"])
 
 OPEN_FOOD_FACTS_URL = "https://world.openfoodfacts.org/api/v2/product/{code}.json"
+UPC_ITEM_DB_URL = "https://api.upcitemdb.com/prod/trial/lookup?upc={code}"
+
+
+def _try_open_food_facts(code: str) -> dict | None:
+    try:
+        resp = httpx.get(
+            OPEN_FOOD_FACTS_URL.format(code=code),
+            timeout=8,
+            headers={"User-Agent": "CoopProject/1.0"},
+        )
+        data = resp.json()
+    except (httpx.RequestError, ValueError):
+        return None
+
+    if data.get("status") != 1:
+        return None
+
+    p = data.get("product", {})
+    name = (
+        p.get("product_name_pt")
+        or p.get("product_name")
+        or p.get("product_name_en")
+        or ""
+    )
+    if not name:
+        return None
+
+    brand = p.get("brands", "").split(",")[0].strip() or None
+    category = (
+        (p.get("categories_tags") or [""])[0]
+        .replace("en:", "").replace("pt:", "").replace("-", " ").title()
+        or None
+    )
+    image_url = p.get("image_url") or p.get("image_front_url") or None
+    quantity = p.get("quantity") or ""
+
+    return {
+        "source": "openfoodfacts",
+        "name": f"{name} {quantity}".strip(),
+        "brand": brand,
+        "category": category,
+        "image_url": image_url,
+    }
+
+
+def _try_upc_item_db(code: str) -> dict | None:
+    try:
+        resp = httpx.get(
+            UPC_ITEM_DB_URL.format(code=code),
+            timeout=8,
+            headers={"User-Agent": "CoopProject/1.0"},
+        )
+        data = resp.json()
+    except (httpx.RequestError, ValueError):
+        return None
+
+    items = data.get("items") or []
+    if not items:
+        return None
+
+    item = items[0]
+    name = item.get("title") or ""
+    if not name:
+        return None
+
+    brand = item.get("brand") or None
+    category = item.get("category") or None
+    images = item.get("images") or []
+    image_url = images[0] if images else None
+
+    return {
+        "source": "upcitemdb",
+        "name": name,
+        "brand": brand,
+        "category": category,
+        "image_url": image_url,
+    }
+
+
+def _try_openai(code: str) -> dict | None:
+    if not settings.openai_api_key:
+        return None
+    try:
+        import openai
+        client = openai.OpenAI(api_key=settings.openai_api_key)
+        prompt = (
+            f"O código de barras EAN {code} é de um produto vendido no Brasil. "
+            "Com base no seu conhecimento de treinamento, identifique o produto. "
+            "Responda SOMENTE com JSON no formato: "
+            '{"name": "...", "brand": "...", "category": "...", "found": true/false}. '
+            "Se não souber, retorne found: false."
+        )
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            temperature=0,
+            max_tokens=150,
+        )
+        result = json.loads(resp.choices[0].message.content)
+        if not result.get("found") or not result.get("name"):
+            return None
+        return {
+            "source": "openai",
+            "name": result["name"],
+            "brand": result.get("brand") or None,
+            "category": result.get("category") or None,
+            "image_url": None,
+        }
+    except Exception as exc:
+        logger.warning("OpenAI barcode lookup failed: %s", exc)
+        return None
 
 
 @router.get("/{code}")
 def lookup_barcode(code: str, db: Session = Depends(get_db)):
-    """Look up a barcode in our DB first, then fall back to Open Food Facts."""
-    # Validate: barcode should be numeric, 8-14 digits
+    """Look up a barcode: local DB → Open Food Facts → UPC Item DB → OpenAI → not found."""
     if not code.isdigit() or not (8 <= len(code) <= 14):
         raise HTTPException(400, "Código de barras inválido")
 
-    # Check our local DB first
+    # 1. Local DB
     product = db.query(Product).filter(Product.barcode == code).first()
     if product:
         prices = (
@@ -27,6 +142,7 @@ def lookup_barcode(code: str, db: Session = Depends(get_db)):
             .all()
         )
         return {
+            "found": True,
             "source": "local",
             "product": {
                 "id": product.id,
@@ -42,40 +158,26 @@ def lookup_barcode(code: str, db: Session = Depends(get_db)):
             ],
         }
 
-    # Query Open Food Facts
-    try:
-        resp = httpx.get(
-            OPEN_FOOD_FACTS_URL.format(code=code),
-            timeout=10,
-            headers={"User-Agent": "CoopProject/1.0"},
-        )
-        data = resp.json()
-    except (httpx.RequestError, ValueError):
-        raise HTTPException(502, "Não foi possível consultar a base de produtos")
+    # 2. External sources
+    info = _try_open_food_facts(code) or _try_upc_item_db(code) or _try_openai(code)
 
-    if data.get("status") != 1:
-        raise HTTPException(404, "Produto não encontrado para este código de barras")
-
-    p = data.get("product", {})
-    name = (
-        p.get("product_name_pt")
-        or p.get("product_name")
-        or p.get("product_name_en")
-        or "Produto Desconhecido"
-    )
-    brand = p.get("brands", "").split(",")[0].strip() or None
-    category = (p.get("categories_tags") or [""])[0].replace("en:", "").replace("pt:", "").replace("-", " ").title() or None
-    image_url = p.get("image_url") or p.get("image_front_url") or None
-    quantity = p.get("quantity") or ""
+    if not info:
+        return {
+            "found": False,
+            "source": "none",
+            "product": None,
+            "prices": [],
+        }
 
     return {
-        "source": "openfoodfacts",
+        "found": True,
+        "source": info["source"],
         "product": {
             "id": None,
-            "name": f"{name} {quantity}".strip(),
-            "brand": brand,
-            "category": category,
-            "image_url": image_url,
+            "name": info["name"],
+            "brand": info.get("brand"),
+            "category": info.get("category"),
+            "image_url": info.get("image_url"),
             "barcode": code,
         },
         "prices": [],

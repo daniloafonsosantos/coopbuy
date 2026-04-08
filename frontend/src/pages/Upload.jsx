@@ -3,7 +3,7 @@ import { Html5Qrcode } from 'html5-qrcode'
 import {
   Camera, ScanLine, Upload as UploadIcon, CheckCircle,
   AlertCircle, X, ArrowRight, DollarSign, ShoppingBag, RotateCcw,
-  Image as ImageIcon,
+  Image as ImageIcon, PenLine,
 } from 'lucide-react'
 import { uploadReceipt, lookupBarcode, saveBarcodePrice, getMarkets } from '../api/client'
 
@@ -154,6 +154,10 @@ function TabBarcode() {
   const [price, setPrice] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState(null)
+  const [notFound, setNotFound] = useState(false)
+  const [regName, setRegName] = useState('')
+  const [regBrand, setRegBrand] = useState('')
+  const [regCategory, setRegCategory] = useState('')
   const [markets, setMarkets] = useState([])
   const html5QrRef = useRef(null)
   const photoInputRef = useRef(null)
@@ -201,13 +205,17 @@ function TabBarcode() {
 
   const handleCode = async (barcode) => {
     setCode(barcode); setLoading(true); setError(null)
-    setProduct(null); setPrices([]); setSaveResult(null)
+    setProduct(null); setPrices([]); setSaveResult(null); setNotFound(false)
     try {
       const res = await lookupBarcode(barcode)
-      setProduct(res.data.product)
-      setPrices(res.data.prices || [])
+      if (!res.data.found) {
+        setNotFound(true)
+      } else {
+        setProduct(res.data.product)
+        setPrices(res.data.prices || [])
+      }
     } catch (e) {
-      setError(e.response?.data?.detail || 'Produto não encontrado para este código')
+      setError(e.response?.data?.detail || 'Erro ao buscar o produto')
     } finally {
       setLoading(false)
     }
@@ -233,9 +241,31 @@ function TabBarcode() {
     }
   }
 
+  const handleRegisterSave = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const res = await saveBarcodePrice(code, {
+        price: parseFloat(price),
+        market,
+        name: regName.trim(),
+        brand: regBrand.trim() || undefined,
+        category: regCategory.trim() || undefined,
+        image_url: null,
+      })
+      setSaveResult(res.data)
+      setNotFound(false)
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Erro ao salvar')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const reset = () => {
     setProduct(null); setPrices([]); setCode(''); setManualCode('')
     setError(null); setSaveResult(null); setPrice(''); setMarket('')
+    setNotFound(false); setRegName(''); setRegBrand(''); setRegCategory('')
   }
 
   return (
@@ -316,6 +346,7 @@ function TabBarcode() {
         <div className="flex flex-col items-center py-16 gap-3">
           <div className="w-10 h-10 border-4 border-emerald-100 border-t-emerald-500 rounded-full animate-spin" />
           <p className="text-sm text-gray-500">Buscando <strong>{code}</strong>...</p>
+          <p className="text-xs text-gray-400">Consultando múltiplas bases de dados</p>
         </div>
       )}
 
@@ -327,6 +358,118 @@ function TabBarcode() {
             <p className="text-sm mt-0.5 text-red-600">{error}</p>
           </div>
           <button onClick={reset} className="text-red-400 hover:text-red-600"><RotateCcw size={16} /></button>
+        </div>
+      )}
+
+      {notFound && !loading && !saveResult && (
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 px-4 py-4 bg-amber-50 border border-amber-200 rounded-xl">
+            <AlertCircle size={20} className="text-amber-500 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-800">Produto não encontrado</p>
+              <p className="text-xs text-amber-600 mt-0.5">
+                Código <span className="font-mono font-semibold">{code}</span> não está em nenhuma base de dados.
+                Preencha abaixo para cadastrá-lo!
+              </p>
+            </div>
+            <button onClick={reset} className="text-amber-400 hover:text-amber-600"><RotateCcw size={16} /></button>
+          </div>
+
+          <form onSubmit={handleRegisterSave}
+            className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+            <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+              <PenLine size={16} className="text-amber-500" /> Cadastrar produto
+            </p>
+
+            <div>
+              <label className="text-xs text-gray-500 font-medium">Nome do produto <span className="text-red-400">*</span></label>
+              <input
+                value={regName}
+                onChange={(e) => setRegName(e.target.value)}
+                placeholder="Ex: Coca-Cola 2L"
+                className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-500 font-medium">Marca</label>
+                <input
+                  value={regBrand}
+                  onChange={(e) => setRegBrand(e.target.value)}
+                  placeholder="Ex: Coca-Cola"
+                  className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 font-medium">Categoria</label>
+                <input
+                  value={regCategory}
+                  onChange={(e) => setRegCategory(e.target.value)}
+                  placeholder="Ex: Bebidas"
+                  className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+            </div>
+
+            <div className="border-t border-gray-100 pt-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Registrar preço</p>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-gray-500 font-medium">Mercado <span className="text-red-400">*</span></label>
+                  <input
+                    list="market-list-reg"
+                    value={market}
+                    onChange={(e) => setMarket(e.target.value)}
+                    placeholder="Nome do mercado"
+                    className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    required
+                  />
+                  <datalist id="market-list-reg">
+                    {markets.map((m) => <option key={m.id} value={m.name} />)}
+                  </datalist>
+                  <p className="text-xs text-gray-400 mt-1">Nomes parecidos são unificados automaticamente</p>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium">Preço (R$) <span className="text-red-400">*</span></label>
+                  <input
+                    type="number" step="0.01" min="0.01"
+                    value={price}
+                    onChange={(e) => setPrice(e.target.value)}
+                    placeholder="0,00"
+                    className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            <button type="submit" disabled={saving || !regName.trim() || !price || !market}
+              className="w-full py-3 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white font-semibold rounded-xl text-sm flex items-center justify-center gap-2">
+              {saving
+                ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Salvando...</>
+                : <><ShoppingBag size={16} /> Cadastrar e Salvar Preço</>}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {saveResult && notFound === false && !product && (
+        <div className="space-y-3">
+          <div className="flex items-start gap-3 px-4 py-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+            <CheckCircle size={20} className="text-emerald-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-emerald-800">Produto cadastrado e preço salvo!</p>
+              <p className="text-sm text-emerald-600 mt-0.5">
+                {fmt(price)} em <strong>{saveResult.market}</strong>
+              </p>
+            </div>
+          </div>
+          <button onClick={reset}
+            className="w-full py-2.5 border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 flex items-center justify-center gap-2">
+            <ScanLine size={16} /> Escanear outro produto
+          </button>
         </div>
       )}
 
