@@ -191,10 +191,17 @@ function TabBarcode() {
   }
 
   const scanFromPhoto = async (file) => {
-    setError(null); setProduct(null); setPrices([]); setSaveResult(null)
+    setError(null); setProduct(null); setPrices([]); setSaveResult(null); setNotFound(false)
+    // Instantiate BEFORE setLoading — the div must still be in the DOM
+    let scanner
+    try {
+      scanner = new Html5Qrcode('barcode-photo-scanner')
+    } catch {
+      setError('Erro ao inicializar o leitor de código. Tente escanear ao vivo.')
+      return
+    }
     setLoading(true)
     try {
-      const scanner = new Html5Qrcode('barcode-photo-scanner')
       const decoded = await scanner.scanFile(file, false)
       handleCode(decoded)
     } catch {
@@ -315,7 +322,6 @@ function TabBarcode() {
                 className="hidden"
                 onChange={(e) => { if (e.target.files[0]) scanFromPhoto(e.target.files[0]); e.target.value = '' }}
               />
-              <div id="barcode-photo-scanner" className="hidden" />
             </div>
           )}
 
@@ -583,6 +589,9 @@ function TabBarcode() {
           </button>
         </div>
       )}
+
+      {/* Always in DOM so Html5Qrcode can reference it for scanFile() */}
+      <div id="barcode-photo-scanner" className="hidden" />
     </div>
   )
 }
