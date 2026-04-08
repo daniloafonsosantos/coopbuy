@@ -1,8 +1,16 @@
-import { useRef, useState } from 'react'
-import { Upload as UploadIcon, Camera, CheckCircle, AlertCircle, X, ArrowRight } from 'lucide-react'
-import { uploadReceipt } from '../api/client'
+import { useRef, useState, useEffect } from 'react'
+import { Html5Qrcode } from 'html5-qrcode'
+import {
+  Camera, ScanLine, Upload as UploadIcon, CheckCircle,
+  AlertCircle, X, ArrowRight, DollarSign, ShoppingBag, RotateCcw,
+} from 'lucide-react'
+import { uploadReceipt, lookupBarcode, saveBarcodePrice, getMarkets } from '../api/client'
 
-export default function Upload() {
+const fmt = (v) =>
+  Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+// ─── Tab 1: Foto do Cupom ───────────────────────────────────────────────────
+function TabReceipt() {
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -19,12 +27,6 @@ export default function Upload() {
     setError(null)
   }
 
-  const handleDrop = (e) => {
-    e.preventDefault()
-    setDragging(false)
-    handleFile(e.dataTransfer.files[0])
-  }
-
   const handleSubmit = async () => {
     if (!file) return
     setLoading(true)
@@ -33,7 +35,7 @@ export default function Upload() {
       const res = await uploadReceipt(file)
       setResult(res.data)
     } catch (e) {
-      setError(e.response?.data?.detail || 'Erro ao processar o cupom. Tente novamente.')
+      setError(e.response?.data?.detail || 'Erro ao processar o cupom.')
     } finally {
       setLoading(false)
     }
@@ -41,68 +43,39 @@ export default function Upload() {
 
   const clear = () => {
     if (preview) URL.revokeObjectURL(preview)
-    setFile(null)
-    setPreview(null)
-    setResult(null)
-    setError(null)
+    setFile(null); setPreview(null); setResult(null); setError(null)
     if (inputRef.current) inputRef.current.value = ''
   }
 
   return (
-    <div className="max-w-lg mx-auto space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Enviar Cupom</h1>
-        <p className="text-gray-500 text-sm mt-1">
-          Fotografe ou selecione a imagem do cupom fiscal para extração automática
-        </p>
-      </div>
-
-      {/* Drop zone */}
+    <div className="space-y-4">
       {!preview && !result && (
         <div
           onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
           onDragLeave={() => setDragging(false)}
-          onDrop={handleDrop}
+          onDrop={(e) => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]) }}
           onClick={() => inputRef.current.click()}
           className={`border-2 border-dashed rounded-2xl p-12 flex flex-col items-center gap-4 cursor-pointer transition-all select-none ${
-            dragging
-              ? 'border-emerald-400 bg-emerald-50 scale-[1.01]'
-              : 'border-gray-300 hover:border-emerald-400 hover:bg-gray-50'
+            dragging ? 'border-emerald-400 bg-emerald-50' : 'border-gray-300 hover:border-emerald-400 hover:bg-gray-50'
           }`}
         >
           <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center">
             <Camera size={30} className="text-emerald-600" />
           </div>
           <div className="text-center">
-            <p className="font-semibold text-gray-700">
-              Clique para selecionar ou arraste aqui
-            </p>
-            <p className="text-sm text-gray-400 mt-1">
-              JPG, PNG, WEBP — foto do cupom fiscal
-            </p>
+            <p className="font-semibold text-gray-700">Clique para selecionar ou arraste</p>
+            <p className="text-sm text-gray-400 mt-1">JPG, PNG, WEBP — foto do cupom fiscal</p>
           </div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => handleFile(e.target.files[0])}
-          />
+          <input ref={inputRef} type="file" accept="image/*" className="hidden"
+            onChange={(e) => handleFile(e.target.files[0])} />
         </div>
       )}
 
-      {/* Preview */}
       {preview && !result && (
         <div className="relative rounded-2xl overflow-hidden shadow-md bg-gray-100">
-          <img
-            src={preview}
-            alt="Cupom selecionado"
-            className="w-full object-contain max-h-80"
-          />
-          <button
-            onClick={clear}
-            className="absolute top-3 right-3 bg-white/90 hover:bg-white rounded-full p-1.5 shadow-md text-gray-600 hover:text-gray-800 transition-colors"
-          >
+          <img src={preview} alt="Cupom" className="w-full object-contain max-h-80" />
+          <button onClick={clear}
+            className="absolute top-3 right-3 bg-white/90 rounded-full p-1.5 shadow-md text-gray-600">
             <X size={18} />
           </button>
           <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/30 to-transparent p-3">
@@ -111,93 +84,361 @@ export default function Upload() {
         </div>
       )}
 
-      {/* Submit button */}
       {file && !result && (
-        <button
-          onClick={handleSubmit}
-          disabled={loading}
-          className="w-full py-3.5 px-6 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:bg-emerald-300 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2.5 text-sm"
-        >
+        <button onClick={handleSubmit} disabled={loading}
+          className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2.5 text-sm">
           {loading ? (
             <>
               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              Processando com IA — pode levar alguns segundos…
+              Processando com IA...
             </>
           ) : (
-            <>
-              <UploadIcon size={18} />
-              Enviar e Processar Cupom
-            </>
+            <><UploadIcon size={18} /> Enviar e Processar Cupom</>
           )}
         </button>
       )}
 
-      {/* Error */}
       {error && (
         <div className="flex items-start gap-3 px-4 py-3.5 bg-red-50 border border-red-200 rounded-xl text-red-700">
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
-          <div>
-            <p className="text-sm font-semibold">Erro ao processar</p>
-            <p className="text-sm mt-0.5 text-red-600">{error}</p>
-          </div>
+          <p className="text-sm">{error}</p>
         </div>
       )}
 
-      {/* Result */}
       {result && (
         <div className="space-y-4">
-          <div
-            className={`flex items-start gap-3 px-4 py-4 rounded-xl border ${
-              result.status === 'processed'
-                ? 'bg-emerald-50 border-emerald-200'
-                : 'bg-amber-50 border-amber-200'
-            }`}
-          >
-            {result.status === 'processed' ? (
-              <CheckCircle size={20} className="text-emerald-600 mt-0.5 shrink-0" />
-            ) : (
-              <AlertCircle size={20} className="text-amber-500 mt-0.5 shrink-0" />
-            )}
-            <div className="flex-1">
+          <div className={`flex items-start gap-3 px-4 py-4 rounded-xl border ${
+            result.status === 'processed' ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'
+          }`}>
+            {result.status === 'processed'
+              ? <CheckCircle size={20} className="text-emerald-600 mt-0.5 shrink-0" />
+              : <AlertCircle size={20} className="text-amber-500 mt-0.5 shrink-0" />}
+            <div>
               <p className={`font-semibold text-sm ${result.status === 'processed' ? 'text-emerald-800' : 'text-amber-800'}`}>
-                {result.status === 'processed'
-                  ? 'Cupom processado com sucesso!'
-                  : 'Cupom enviado — nenhum produto detectado'}
+                {result.status === 'processed' ? 'Cupom processado!' : 'Nenhum produto detectado'}
               </p>
               <ul className="mt-2 space-y-1 text-sm text-gray-600">
-                <li className="flex items-center gap-1.5">
-                  <span>📍</span>
-                  <span>Mercado: <strong>{result.market || 'Não identificado'}</strong></span>
-                </li>
-                <li className="flex items-center gap-1.5">
-                  <span>🏷️</span>
-                  <span>Produtos extraídos: <strong>{result.products_count}</strong></span>
-                </li>
-                <li className="flex items-center gap-1.5">
-                  <span>🧾</span>
-                  <span>ID do cupom: <strong>#{result.receipt_id}</strong></span>
-                </li>
+                <li>📍 Mercado: <strong>{result.market || 'Não identificado'}</strong></li>
+                <li>🏷️ Produtos: <strong>{result.products_count}</strong></li>
+                <li>🧾 Cupom: <strong>#{result.receipt_id}</strong></li>
               </ul>
             </div>
           </div>
-
           <div className="flex gap-3">
-            <button
-              onClick={clear}
-              className="flex-1 py-2.5 px-4 border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors"
-            >
-              Enviar outro cupom
+            <button onClick={clear}
+              className="flex-1 py-2.5 border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50">
+              Enviar outro
             </button>
-            <a
-              href="/products"
-              className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-xl transition-colors flex items-center justify-center gap-1.5"
-            >
-              Ver produtos
-              <ArrowRight size={15} />
+            <a href="/products"
+              className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-xl flex items-center justify-center gap-1.5">
+              Ver produtos <ArrowRight size={15} />
             </a>
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Tab 2: Código de Barras ────────────────────────────────────────────────
+function TabBarcode() {
+  const [scanning, setScanning] = useState(false)
+  const [product, setProduct] = useState(null)
+  const [prices, setPrices] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [code, setCode] = useState('')
+  const [manualCode, setManualCode] = useState('')
+  const [market, setMarket] = useState('')
+  const [price, setPrice] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveResult, setSaveResult] = useState(null)
+  const [markets, setMarkets] = useState([])
+  const html5QrRef = useRef(null)
+
+  useEffect(() => {
+    getMarkets().then((r) => setMarkets(r.data)).catch(() => {})
+  }, [])
+
+  const startScanner = async () => {
+    setError(null); setProduct(null); setPrices([]); setSaveResult(null)
+    setScanning(true)
+    await new Promise((r) => setTimeout(r, 100))
+    const scanner = new Html5Qrcode('barcode-reader')
+    html5QrRef.current = scanner
+    try {
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 280, height: 140 }, aspectRatio: 1.5 },
+        (decoded) => { scanner.stop().catch(() => {}); setScanning(false); handleCode(decoded) },
+        () => {}
+      )
+    } catch {
+      setError('Não foi possível acessar a câmera. Verifique as permissões.')
+      setScanning(false)
+    }
+  }
+
+  const stopScanner = () => {
+    html5QrRef.current?.stop().catch(() => {})
+    setScanning(false)
+  }
+
+  const handleCode = async (barcode) => {
+    setCode(barcode); setLoading(true); setError(null)
+    setProduct(null); setPrices([]); setSaveResult(null)
+    try {
+      const res = await lookupBarcode(barcode)
+      setProduct(res.data.product)
+      setPrices(res.data.prices || [])
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Produto não encontrado para este código')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSavePrice = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const res = await saveBarcodePrice(code, {
+        price: parseFloat(price),
+        market,
+        name: product.name,
+        brand: product.brand,
+        category: product.category,
+        image_url: product.image_url,
+      })
+      setSaveResult(res.data)
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Erro ao salvar preço')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const reset = () => {
+    setProduct(null); setPrices([]); setCode(''); setManualCode('')
+    setError(null); setSaveResult(null); setPrice(''); setMarket('')
+  }
+
+  return (
+    <div className="space-y-4">
+      {!product && !loading && (
+        <>
+          {scanning ? (
+            <div className="relative rounded-2xl overflow-hidden bg-black">
+              <div id="barcode-reader" className="w-full" />
+              <button onClick={stopScanner}
+                className="absolute top-3 right-3 bg-white/90 rounded-full p-1.5 shadow-md text-gray-600 z-10">
+                <X size={18} />
+              </button>
+              <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent p-4">
+                <p className="text-white text-sm text-center font-medium">Aponte para o código de barras...</p>
+              </div>
+            </div>
+          ) : (
+            <button onClick={startScanner}
+              className="w-full py-10 border-2 border-dashed border-gray-300 rounded-2xl hover:border-emerald-400 hover:bg-gray-50 transition-all flex flex-col items-center gap-3">
+              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center">
+                <ScanLine size={30} className="text-emerald-600" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-gray-700">Abrir câmera para escanear</p>
+                <p className="text-sm text-gray-400 mt-1">EAN-13, EAN-8, UPC-A, UPC-E</p>
+              </div>
+            </button>
+          )}
+
+          <div className="flex items-center gap-3">
+            <div className="flex-1 border-t border-gray-200" />
+            <span className="text-xs text-gray-400 font-medium">OU DIGITE O CÓDIGO</span>
+            <div className="flex-1 border-t border-gray-200" />
+          </div>
+
+          <form onSubmit={(e) => { e.preventDefault(); if (manualCode.trim()) handleCode(manualCode.trim()) }}
+            className="flex gap-2">
+            <input
+              type="text" inputMode="numeric" pattern="[0-9]*"
+              value={manualCode}
+              onChange={(e) => setManualCode(e.target.value.replace(/\D/g, ''))}
+              placeholder="Ex: 7894900011517"
+              className="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+            />
+            <button type="submit" disabled={!manualCode.trim()}
+              className="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-semibold rounded-xl text-sm">
+              Buscar
+            </button>
+          </form>
+        </>
+      )}
+
+      {loading && (
+        <div className="flex flex-col items-center py-16 gap-3">
+          <div className="w-10 h-10 border-4 border-emerald-100 border-t-emerald-500 rounded-full animate-spin" />
+          <p className="text-sm text-gray-500">Buscando <strong>{code}</strong>...</p>
+        </div>
+      )}
+
+      {error && !loading && (
+        <div className="flex items-start gap-3 px-4 py-3.5 bg-red-50 border border-red-200 rounded-xl text-red-700">
+          <AlertCircle size={18} className="mt-0.5 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold">Não encontrado</p>
+            <p className="text-sm mt-0.5 text-red-600">{error}</p>
+          </div>
+          <button onClick={reset} className="text-red-400 hover:text-red-600"><RotateCcw size={16} /></button>
+        </div>
+      )}
+
+      {product && !loading && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="flex gap-4 p-4">
+              <div className="w-24 h-24 bg-gray-50 rounded-xl flex items-center justify-center shrink-0 overflow-hidden">
+                {product.image_url
+                  ? <img src={product.image_url} alt={product.name}
+                      className="w-full h-full object-cover"
+                      onError={(e) => { e.target.style.display = 'none' }} />
+                  : <span className="text-4xl">🛒</span>}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-gray-900 leading-tight">{product.name}</p>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {product.brand && (
+                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{product.brand}</span>
+                  )}
+                  {product.category && (
+                    <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">{product.category}</span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-400 mt-2 font-mono">{code}</p>
+              </div>
+            </div>
+
+            {prices.length > 0 && (
+              <div className="border-t border-gray-100 px-4 py-3">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                  Preços registrados
+                </p>
+                <ul className="space-y-1.5">
+                  {prices.map((p, i) => (
+                    <li key={i} className="flex justify-between items-center text-sm">
+                      <span className="text-gray-600 flex items-center gap-1.5">
+                        {i === 0 && <span>🏆</span>}{p.market}
+                      </span>
+                      <span className={`font-bold ${i === 0 ? 'text-emerald-600' : 'text-gray-600'}`}>
+                        {fmt(p.price)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          {!saveResult ? (
+            <form onSubmit={handleSavePrice}
+              className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+              <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                <DollarSign size={16} className="text-emerald-600" /> Registrar preço
+              </p>
+              <div>
+                <label className="text-xs text-gray-500 font-medium">Mercado</label>
+                <input
+                  list="market-list-bc"
+                  value={market}
+                  onChange={(e) => setMarket(e.target.value)}
+                  placeholder="Nome do mercado"
+                  className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                  required
+                />
+                <datalist id="market-list-bc">
+                  {markets.map((m) => <option key={m.id} value={m.name} />)}
+                </datalist>
+                <p className="text-xs text-gray-400 mt-1">
+                  Nomes parecidos são unificados automaticamente
+                </p>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 font-medium">Preço (R$)</label>
+                <input
+                  type="number" step="0.01" min="0.01"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                  placeholder="0,00"
+                  className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                  required
+                />
+              </div>
+              <button type="submit" disabled={saving || !price || !market}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-semibold rounded-xl text-sm flex items-center justify-center gap-2">
+                {saving
+                  ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Salvando...</>
+                  : <><ShoppingBag size={16} /> Salvar Preço</>}
+              </button>
+            </form>
+          ) : (
+            <div className="flex items-start gap-3 px-4 py-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+              <CheckCircle size={20} className="text-emerald-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-emerald-800">Preço salvo!</p>
+                <p className="text-sm text-emerald-600 mt-0.5">
+                  {fmt(price)} em <strong>{saveResult.market}</strong>
+                </p>
+                {saveResult.market !== market && (
+                  <p className="text-xs text-emerald-500 mt-1">
+                    Nome normalizado: "{market}" → "{saveResult.market}"
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          <button onClick={reset}
+            className="w-full py-2.5 border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 flex items-center justify-center gap-2">
+            <ScanLine size={16} /> Escanear outro produto
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Página principal ────────────────────────────────────────────────────────
+export default function Upload() {
+  const [tab, setTab] = useState('receipt')
+
+  return (
+    <div className="max-w-lg mx-auto space-y-5">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Registrar Preço</h1>
+        <p className="text-gray-500 text-sm mt-1">
+          Envie um cupom fiscal ou escaneie o código de barras de um produto
+        </p>
+      </div>
+
+      <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
+        <button
+          onClick={() => setTab('receipt')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+            tab === 'receipt' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Camera size={16} /> Foto do Cupom
+        </button>
+        <button
+          onClick={() => setTab('barcode')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+            tab === 'barcode' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <ScanLine size={16} /> Código de Barras
+        </button>
+      </div>
+
+      {tab === 'receipt' ? <TabReceipt /> : <TabBarcode />}
     </div>
   )
 }

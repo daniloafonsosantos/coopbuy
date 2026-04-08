@@ -11,7 +11,7 @@ import {
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/upload', icon: Upload, label: 'Enviar Cupom' },
+  { to: '/upload', icon: Upload, label: 'Registrar Preço' },
   { to: '/products', icon: ShoppingBag, label: 'Produtos' },
   { to: '/markets', icon: Store, label: 'Mercados' },
 ]

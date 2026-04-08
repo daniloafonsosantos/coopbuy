@@ -31,13 +31,10 @@ def process_receipt(db: Session, receipt: Receipt, image_path: str) -> dict:
         db.commit()
         return {"status": "failed", "reason": "No items extracted"}
 
-    # Step 2: Save/get market — sanitize invalid names from the agent
+    # Step 2: Save/get market — normalize to avoid duplicates from typos/abbrevs
+    from app.services.market_normalizer import normalize_market_name
     raw_market = extracted.get("market_name") or ""
-    _invalid = {"null", "none", "unknown", "desconhecido", "n/a", ""}
-    if raw_market.strip().lower() in _invalid:
-        market_name = "Desconhecido"
-    else:
-        market_name = raw_market.strip()
+    market_name = normalize_market_name(raw_market)
     raw_state = extracted.get("market_state") or ""
     # Normalize state to 2-letter UF (GPT-4o sometimes returns full state name)
     state_uf = raw_state.strip()[:2].upper() if raw_state.strip() else ""

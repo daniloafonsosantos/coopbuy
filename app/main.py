@@ -7,7 +7,7 @@ from app.config import settings
 from app.database import engine
 from app.models import Market, Product, Price, Receipt  # noqa: F401 — needed for Base metadata
 from app.database import Base
-from app.routers import receipts, products, markets, stats
+from app.routers import receipts, products, markets, stats, barcode
 
 logging.basicConfig(level=logging.INFO)
 
@@ -19,6 +19,18 @@ app = FastAPI(
 
 # Create tables on startup (idempotent — safe to run repeatedly)
 Base.metadata.create_all(bind=engine)
+
+# Idempotent column migrations (safe to run on every startup)
+from sqlalchemy import text as _text
+with engine.connect() as _conn:
+    _conn.execute(_text(
+        "ALTER TABLE products ADD COLUMN IF NOT EXISTS barcode VARCHAR(50)"
+    ))
+    _conn.execute(_text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_products_barcode "
+        "ON products(barcode) WHERE barcode IS NOT NULL"
+    ))
+    _conn.commit()
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,6 +49,7 @@ app.include_router(receipts.router)
 app.include_router(products.router)
 app.include_router(markets.router)
 app.include_router(stats.router)
+app.include_router(barcode.router)
 
 
 @app.get("/health")

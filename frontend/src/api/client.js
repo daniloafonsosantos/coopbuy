@@ -15,6 +15,11 @@ export const getProductPrices = (name) =>
 export const getMarkets = () => api.get('/markets/')
 export const getReceipts = (limit = 10) =>
   api.get('/receipts/', { params: { limit } })
+export const lookupBarcode = (code) =>
+  api.get(`/barcode/${encodeURIComponent(code)}`)
+export const saveBarcodePrice = (code, body) =>
+  api.post(`/barcode/${encodeURIComponent(code)}/price`, body)
+
 export const uploadReceipt = (file) => {
   const fd = new FormData()
   fd.append('file', file)
