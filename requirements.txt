@@ -5,7 +5,8 @@ psycopg2-binary==2.9.10
 alembic==1.14.0
 python-dotenv==1.0.1
 python-multipart==0.0.19
-easyocr==1.7.2
+pytesseract==0.3.13
+Pillow==11.1.0
 strands-agents==0.1.5
 strands-agents-tools==0.1.2
 openai==1.59.5

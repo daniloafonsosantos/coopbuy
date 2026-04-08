@@ -1,12 +1,9 @@
 FROM python:3.12-slim
 
-# System deps for EasyOCR (OpenCV + libGL)
+# System deps for pytesseract
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
+    tesseract-ocr \
+    tesseract-ocr-por \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

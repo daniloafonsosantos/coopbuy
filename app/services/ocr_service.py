@@ -1,33 +1,27 @@
-import easyocr
-
-_reader: easyocr.Reader | None = None
-
-
-def get_reader() -> easyocr.Reader:
-    global _reader
-    if _reader is None:
-        _reader = easyocr.Reader(["pt", "en"], gpu=False)
-    return _reader
+import pytesseract
+from PIL import Image
 
 
 def extract_text(image_path: str) -> tuple[str, float]:
     """
-    Extracts text from image using EasyOCR.
+    Extracts text from image using pytesseract.
     Returns (text, avg_confidence).
     """
-    reader = get_reader()
-    results = reader.readtext(image_path)
+    image = Image.open(image_path)
+    data = pytesseract.image_to_data(
+        image, lang="por+eng", output_type=pytesseract.Output.DICT
+    )
 
-    if not results:
+    words = [
+        (t, int(c))
+        for t, c in zip(data["text"], data["conf"])
+        if t.strip() and int(c) > 0
+    ]
+
+    if not words:
         return "", 0.0
 
-    lines = []
-    total_confidence = 0.0
-    for _, text, confidence in results:
-        lines.append(text)
-        total_confidence += confidence
-
-    full_text = "\n".join(lines)
-    avg_confidence = total_confidence / len(results)
+    full_text = "\n".join(w[0] for w in words)
+    avg_confidence = sum(w[1] for w in words) / len(words) / 100.0
 
     return full_text, avg_confidence
