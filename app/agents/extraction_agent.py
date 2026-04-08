@@ -29,6 +29,14 @@ ATENÇÃO — problema comum com OCR de impressoras fiscais:
 - SEMPRE use a imagem para corrigir nomes com caracteres errados
 - Os PREÇOS do OCR geralmente estão corretos mesmo quando os nomes estão errados
 
+REGRA CRÍTICA PARA PREÇOS:
+- Cupons fiscais têm colunas: QTD | VALOR UNIT | VALOR TOTAL
+- O campo "total_price" DEVE ser o valor da ÚLTIMA coluna (QTD × UNIT = TOTAL)
+- O campo "unit_price" é o preço unitário de uma unidade
+- Exemplo: 2 unid × R$5,99 = R$11,98 → unit_price=5.99, total_price=11.98
+- Se o item tem quantidade 1, unit_price e total_price são iguais
+- NUNCA coloque o valor unitário no campo total_price quando há quantidade > 1
+
 Retorne APENAS o JSON, sem texto adicional:
 {
     "market_name": "nome do supermercado/estabelecimento",

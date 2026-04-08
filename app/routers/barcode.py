@@ -97,6 +97,51 @@ def _try_openai(code: str) -> dict | None:
     try:
         import openai
         client = openai.OpenAI(api_key=settings.openai_api_key)
+
+        # First try web search (responses API with grounding)
+        try:
+            web_resp = client.responses.create(
+                model="gpt-4o-mini",
+                tools=[{"type": "web_search_preview"}],
+                input=(
+                    f"Qual é o produto com código de barras EAN {code} vendido no Brasil? "
+                    "Pesquise na web e responda com nome, marca e categoria do produto. "
+                    "Se não encontrar nada concreto, diga que não sabe."
+                ),
+            )
+            web_text = "".join(
+                block.text for block in web_resp.output
+                if hasattr(block, "text")
+            ).strip()
+            if web_text and "não sei" not in web_text.lower() and "not found" not in web_text.lower():
+                # Parse the natural language answer into structured JSON
+                parse_resp = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "user", "content":
+                            f"Com base nesta descrição de produto: '{web_text}'\n"
+                            "Extraia nome, marca e categoria. "
+                            'Responda SOMENTE com JSON: {"name":"...","brand":"...","category":"...","found":true}. '
+                            "Se não houver informação suficiente, retorne found:false."
+                        }
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0,
+                    max_tokens=150,
+                )
+                result = json.loads(parse_resp.choices[0].message.content)
+                if result.get("found") and result.get("name"):
+                    return {
+                        "source": "openai_web",
+                        "name": result["name"],
+                        "brand": result.get("brand") or None,
+                        "category": result.get("category") or None,
+                        "image_url": None,
+                    }
+        except Exception as web_exc:
+            logger.info("Web search unavailable, falling back to training knowledge: %s", web_exc)
+
+        # Fallback: training knowledge only
         prompt = (
             f"O código de barras EAN {code} é de um produto vendido no Brasil. "
             "Com base no seu conhecimento de treinamento, identifique o produto. "

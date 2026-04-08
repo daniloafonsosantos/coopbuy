@@ -61,7 +61,7 @@ def process_receipt(db: Session, receipt: Receipt, image_path: str) -> dict:
     for item in extracted["items"]:
         mapping = mapping_lookup.get(item["name"])
         if mapping and mapping.get("product_id"):
-            price_val = item.get("unit_price") or item.get("total_price")
+            price_val = item.get("total_price") or item.get("unit_price")
             if price_val is None:
                 logger.warning(f"Skipping price for '{item['name']}' — price not found in receipt")
                 continue
