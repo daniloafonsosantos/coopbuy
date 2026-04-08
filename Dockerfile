@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Cache bust: change this value to force pip reinstall
+ARG CACHEBUST=2
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
