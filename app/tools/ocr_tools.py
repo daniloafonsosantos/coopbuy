@@ -1,12 +1,9 @@
 import base64
 from pathlib import Path
 
-from strands import tool
-
 from app.services.ocr_service import extract_text
 
 
-@tool
 def ocr_read_image(image_path: str) -> dict:
     """
     Reads text from a receipt image using OCR.
@@ -21,7 +18,6 @@ def ocr_read_image(image_path: str) -> dict:
     }
 
 
-@tool
 def read_image_as_base64(image_path: str) -> str:
     """
     Reads an image file and returns its base64 encoded content.

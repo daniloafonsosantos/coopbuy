@@ -2,8 +2,6 @@ import logging
 import time
 
 import httpx
-from strands import tool
-
 from app.config import settings
 from app.database import SessionLocal
 from app.models import Product
@@ -96,7 +94,6 @@ def _search_google_custom(product_name: str) -> str:
     return ""
 
 
-@tool
 def search_product_image(product_name: str) -> str:
     """
     Searches for a product image URL using multiple sources with fallback:
@@ -120,7 +117,6 @@ def search_product_image(product_name: str) -> str:
     return ""
 
 
-@tool
 def save_image_url(product_id: int, image_url: str) -> dict:
     """
     Saves an image URL for a product in the database.

@@ -1,8 +1,7 @@
 import json
 import logging
 
-from strands import Agent
-from strands.models.openai import OpenAIModel
+import openai
 
 from app.config import settings
 from app.tools.database_tools import search_existing_products, save_product
@@ -13,15 +12,10 @@ SYSTEM_PROMPT = """Você é um agente especializado em normalizar nomes de produ
 
 Seu trabalho:
 1. Receber uma lista de nomes de produtos brutos (extraídos de cupons fiscais)
-2. Para cada produto:
-   a. Use search_existing_products para verificar se já existe um produto similar no banco
-   b. Se existir um match, use o nome normalizado existente
-   c. Se não existir, normalize o nome seguindo estas regras:
-      - Capitalize corretamente (ex: "COCA COLA 2L" → "Coca-Cola 2L")
-      - Identifique marca e categoria
-      - Mantenha peso/volume quando presente
-      - Use save_product para salvar o produto normalizado
-3. Retorne um JSON com o mapeamento de nome original → product_id
+2. Para cada produto, normalize o nome seguindo estas regras:
+   - Capitalize corretamente (ex: "COCA COLA 2L" → "Coca-Cola 2L")
+   - Identifique marca e categoria
+   - Mantenha peso/volume quando presente
 
 Exemplos de normalização:
 - "COCA COLA 2L" → "Coca-Cola 2L" (marca: Coca-Cola, categoria: Bebidas)
@@ -31,37 +25,55 @@ Exemplos de normalização:
 Retorne APENAS JSON no formato:
 {
     "mappings": [
-        {"original": "COCA COLA 2L", "normalized": "Coca-Cola 2L", "product_id": 1},
+        {"original": "COCA COLA 2L", "normalized": "Coca-Cola 2L", "brand": "Coca-Cola", "category": "Bebidas"},
         ...
     ]
 }"""
 
 
-def create_normalization_agent() -> Agent:
-    model = OpenAIModel(
-        client_args={"api_key": settings.openai_api_key},
-        model_id="gpt-4o-mini",
-    )
-    return Agent(
-        model=model,
-        system_prompt=SYSTEM_PROMPT,
-        tools=[search_existing_products, save_product],
-    )
-
-
 def normalize_products(items: list[dict]) -> list[dict]:
-    agent = create_normalization_agent()
     product_names = [item["name"] for item in items if item.get("name")]
-    response = agent(
-        f"Normalize estes produtos de cupom fiscal: {product_names}"
+    if not product_names:
+        return []
+
+    client = openai.OpenAI(api_key=settings.openai_api_key)
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Normalize estes produtos de cupom fiscal: {product_names}"},
+        ],
+        max_tokens=1500,
     )
-    text = str(response)
+
+    text = response.choices[0].message.content or ""
     start = text.find("{")
     end = text.rfind("}") + 1
-    if start != -1 and end > start:
-        try:
-            result = json.loads(text[start:end])
-            return result.get("mappings", [])
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse normalization response: {text}")
-    return []
+    if start == -1 or end <= start:
+        logger.error(f"Failed to parse normalization response: {text}")
+        return []
+
+    try:
+        result = json.loads(text[start:end])
+        mappings = result.get("mappings", [])
+    except json.JSONDecodeError:
+        logger.error(f"Failed to parse normalization JSON: {text}")
+        return []
+
+    # Save products to database
+    for m in mappings:
+        normalized = m.get("normalized", "")
+        if not normalized:
+            continue
+        existing = search_existing_products(normalized)
+        if existing:
+            m["product_id"] = existing[0]["id"]
+        else:
+            saved = save_product(
+                normalized_name=normalized,
+                brand=m.get("brand", ""),
+                category=m.get("category", ""),
+            )
+            m["product_id"] = saved["id"]
+
+    return mappings

@@ -1,10 +1,7 @@
-from strands import tool
-
 from app.database import SessionLocal
 from app.models import Market, Product, Price
 
 
-@tool
 def search_existing_products(name: str) -> list[dict]:
     """
     Searches for existing products in the database that match the given name.
@@ -24,7 +21,6 @@ def search_existing_products(name: str) -> list[dict]:
         db.close()
 
 
-@tool
 def save_product(normalized_name: str, brand: str = "", category: str = "") -> dict:
     """
     Saves a new product to the database or returns existing one.
@@ -53,7 +49,6 @@ def save_product(normalized_name: str, brand: str = "", category: str = "") -> d
         db.close()
 
 
-@tool
 def save_market(name: str, city: str = "", state: str = "") -> dict:
     """
     Saves a new market to the database or returns existing one.
@@ -74,7 +69,6 @@ def save_market(name: str, city: str = "", state: str = "") -> dict:
         db.close()
 
 
-@tool
 def save_price(product_id: int, market_id: int, price: float) -> dict:
     """
     Saves a price entry for a product at a specific market.
