@@ -3,6 +3,7 @@ import { Html5Qrcode } from 'html5-qrcode'
 import {
   Camera, ScanLine, Upload as UploadIcon, CheckCircle,
   AlertCircle, X, ArrowRight, DollarSign, ShoppingBag, RotateCcw,
+  Image as ImageIcon,
 } from 'lucide-react'
 import { uploadReceipt, lookupBarcode, saveBarcodePrice, getMarkets } from '../api/client'
 
@@ -155,6 +156,7 @@ function TabBarcode() {
   const [saveResult, setSaveResult] = useState(null)
   const [markets, setMarkets] = useState([])
   const html5QrRef = useRef(null)
+  const photoInputRef = useRef(null)
 
   useEffect(() => {
     getMarkets().then((r) => setMarkets(r.data)).catch(() => {})
@@ -182,6 +184,19 @@ function TabBarcode() {
   const stopScanner = () => {
     html5QrRef.current?.stop().catch(() => {})
     setScanning(false)
+  }
+
+  const scanFromPhoto = async (file) => {
+    setError(null); setProduct(null); setPrices([]); setSaveResult(null)
+    setLoading(true)
+    try {
+      const scanner = new Html5Qrcode('barcode-photo-scanner')
+      const decoded = await scanner.scanFile(file, false)
+      handleCode(decoded)
+    } catch {
+      setLoading(false)
+      setError('Não foi possível ler o código da foto. Tente escanear ao vivo ou digitar o código manualmente.')
+    }
   }
 
   const handleCode = async (barcode) => {
@@ -239,16 +254,39 @@ function TabBarcode() {
               </div>
             </div>
           ) : (
-            <button onClick={startScanner}
-              className="w-full py-10 border-2 border-dashed border-gray-300 rounded-2xl hover:border-emerald-400 hover:bg-gray-50 transition-all flex flex-col items-center gap-3">
-              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center">
-                <ScanLine size={30} className="text-emerald-600" />
-              </div>
-              <div className="text-center">
-                <p className="font-semibold text-gray-700">Abrir câmera para escanear</p>
-                <p className="text-sm text-gray-400 mt-1">EAN-13, EAN-8, UPC-A, UPC-E</p>
-              </div>
-            </button>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={startScanner}
+                className="py-10 border-2 border-dashed border-gray-300 rounded-2xl hover:border-emerald-400 hover:bg-gray-50 transition-all flex flex-col items-center gap-3">
+                <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center">
+                  <ScanLine size={26} className="text-emerald-600" />
+                </div>
+                <div className="text-center">
+                  <p className="font-semibold text-gray-700 text-sm">Escanear ao vivo</p>
+                  <p className="text-xs text-gray-400 mt-1">Câmera em tempo real</p>
+                </div>
+              </button>
+
+              <button onClick={() => photoInputRef.current?.click()}
+                className="py-10 border-2 border-dashed border-gray-300 rounded-2xl hover:border-sky-400 hover:bg-sky-50 transition-all flex flex-col items-center gap-3">
+                <div className="w-14 h-14 bg-sky-100 rounded-full flex items-center justify-center">
+                  <ImageIcon size={26} className="text-sky-600" />
+                </div>
+                <div className="text-center">
+                  <p className="font-semibold text-gray-700 text-sm">Tirar foto</p>
+                  <p className="text-xs text-gray-400 mt-1">Mais estável</p>
+                </div>
+              </button>
+
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => { if (e.target.files[0]) scanFromPhoto(e.target.files[0]); e.target.value = '' }}
+              />
+              <div id="barcode-photo-scanner" className="hidden" />
+            </div>
           )}
 
           <div className="flex items-center gap-3">
