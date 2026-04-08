@@ -1,8 +1,9 @@
 import axios from 'axios'
 
+// In production: use the Railway backend URL directly
 // In dev: proxy via Vite (/api → localhost:8000)
-// In production: VITE_API_URL must be set to the backend Railway URL
-const baseURL = import.meta.env.VITE_API_URL || '/api'
+const baseURL = import.meta.env.VITE_API_URL
+  || (import.meta.env.PROD ? 'https://backend-production-c8d3.up.railway.app' : '/api')
 
 const api = axios.create({ baseURL })
 
