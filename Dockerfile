@@ -1,6 +1,5 @@
 FROM python:3.12-slim
 
-# System deps for pytesseract
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-por \
@@ -8,15 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Cache bust: change this value to force pip reinstall
-ARG CACHEBUST=2
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN echo "install-v3-no-strands" && pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
 COPY reprocess_receipt.py .
-
-# Create uploads dir (ephemeral on Railway free tier)
 RUN mkdir -p uploads
 
 EXPOSE 8000
