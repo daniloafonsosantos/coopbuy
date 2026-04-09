@@ -3,7 +3,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm install
 COPY . .
-RUN echo "cache-bust-v2" && npm run build
+# cache bust: 2026-04-09
+RUN echo "cache-bust-v3" && npm run build
 
 FROM node:20-alpine
 WORKDIR /app
