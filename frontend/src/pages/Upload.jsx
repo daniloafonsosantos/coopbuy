@@ -1,9 +1,9 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import { Html5Qrcode } from 'html5-qrcode'
 import {
   Camera, ScanLine, Upload as UploadIcon, CheckCircle,
   AlertCircle, X, ArrowRight, DollarSign, ShoppingBag, RotateCcw,
-  Image as ImageIcon, PenLine,
+  Image as ImageIcon, PenLine, MapPin, Loader,
 } from 'lucide-react'
 import { uploadReceipt, lookupBarcode, saveBarcodePrice, getMarkets, scanBarcodeFromImage } from '../api/client'
 
@@ -159,11 +159,40 @@ function TabBarcode() {
   const [regBrand, setRegBrand] = useState('')
   const [regCategory, setRegCategory] = useState('')
   const [markets, setMarkets] = useState([])
+  const [locating, setLocating] = useState(false)
   const html5QrRef = useRef(null)
   const photoInputRef = useRef(null)
 
   useEffect(() => {
     getMarkets().then((r) => setMarkets(r.data)).catch(() => {})
+  }, [])
+
+  const detectNearbyMarket = useCallback(async () => {
+    if (!navigator.geolocation) { setError('Geolocalização não suportada neste navegador.'); return }
+    setLocating(true)
+    try {
+      const pos = await new Promise((res, rej) =>
+        navigator.geolocation.getCurrentPosition(res, rej, { timeout: 10000 })
+      )
+      const { latitude: lat, longitude: lon } = pos.coords
+      // Overpass API: supermercados num raio de 500m
+      const query = `[out:json][timeout:10];(node["shop"~"supermarket|convenience|grocery"](around:500,${lat},${lon});way["shop"~"supermarket|convenience|grocery"](around:500,${lat},${lon}););out center 5;`
+      const r = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST', body: `data=${encodeURIComponent(query)}`
+      })
+      const data = await r.json()
+      const elements = data.elements || []
+      if (elements.length === 0) { setError('Nenhum supermercado encontrado num raio de 500m.'); return }
+      // Pega o mais próximo (primeiro resultado do Overpass já é o mais próximo)
+      const nome = elements[0].tags?.name || elements[0].tags?.['brand:pt'] || elements[0].tags?.brand || 'Supermercado'
+      setMarket(nome)
+    } catch (e) {
+      if (e.code === 1) setError('Permissão de localização negada.')
+      else if (e.code === 3) setError('Tempo esgotado ao obter localização.')
+      else setError('Não foi possível detectar o mercado próximo.')
+    } finally {
+      setLocating(false)
+    }
   }, [])
 
   const startScanner = async () => {
@@ -445,14 +474,22 @@ function TabBarcode() {
               <div className="space-y-3">
                 <div>
                   <label className="text-xs text-gray-500 font-medium">Mercado <span className="text-red-400">*</span></label>
-                  <input
-                    list="market-list-reg"
-                    value={market}
-                    onChange={(e) => setMarket(e.target.value)}
-                    placeholder="Nome do mercado"
-                    className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                    required
-                  />
+                  <div className="flex gap-2 mt-1">
+                    <input
+                      list="market-list-reg"
+                      value={market}
+                      onChange={(e) => setMarket(e.target.value)}
+                      placeholder="Nome do mercado"
+                      className="flex-1 px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      required
+                    />
+                    <button type="button" onClick={detectNearbyMarket} disabled={locating}
+                      title="Detectar mercado pela localização"
+                      className="px-3 py-2.5 border border-amber-300 bg-amber-50 hover:bg-amber-100 disabled:opacity-50 rounded-lg text-amber-700 flex items-center gap-1 text-xs font-medium shrink-0">
+                      {locating ? <Loader size={14} className="animate-spin" /> : <MapPin size={14} />}
+                      {locating ? '' : 'GPS'}
+                    </button>
+                  </div>
                   <datalist id="market-list-reg">
                     {markets.map((m) => <option key={m.id} value={m.name} />)}
                   </datalist>
@@ -554,14 +591,22 @@ function TabBarcode() {
               </p>
               <div>
                 <label className="text-xs text-gray-500 font-medium">Mercado</label>
-                <input
-                  list="market-list-bc"
-                  value={market}
-                  onChange={(e) => setMarket(e.target.value)}
-                  placeholder="Nome do mercado"
-                  className="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                  required
-                />
+                <div className="flex gap-2 mt-1">
+                  <input
+                    list="market-list-bc"
+                    value={market}
+                    onChange={(e) => setMarket(e.target.value)}
+                    placeholder="Nome do mercado"
+                    className="flex-1 px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                    required
+                  />
+                  <button type="button" onClick={detectNearbyMarket} disabled={locating}
+                    title="Detectar mercado pela localização"
+                    className="px-3 py-2.5 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 rounded-lg text-emerald-700 flex items-center gap-1 text-xs font-medium shrink-0">
+                    {locating ? <Loader size={14} className="animate-spin" /> : <MapPin size={14} />}
+                    {locating ? '' : 'GPS'}
+                  </button>
+                </div>
                 <datalist id="market-list-bc">
                   {markets.map((m) => <option key={m.id} value={m.name} />)}
                 </datalist>
