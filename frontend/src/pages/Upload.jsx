@@ -201,8 +201,7 @@ function TabBarcode() {
     } catch { /* falha silenciosa — vai para Vision */ }
 
     if (jsDecoded) {
-      // JS leu o código — usa o mesmo fluxo do scanner ao vivo
-      handleCode(jsDecoded)
+      await handleCode(jsDecoded)
       return
     }
 
@@ -211,15 +210,15 @@ function TabBarcode() {
     try {
       const res = await scanBarcodeFromImage(file)
       if (res.data.found && res.data.code) {
-        // Vision achou o código — usa o mesmo fluxo do scanner ao vivo
-        handleCode(res.data.code)
+        await handleCode(res.data.code)
       } else {
         setLoading(false)
-        setError('Não foi possível ler o código da foto. Tente escanear ao vivo ou digitar o código manualmente.')
+        setError('Não foi possível ler o código de barras da foto. Tente escanear ao vivo ou digitar o código.')
       }
-    } catch {
+    } catch (err) {
       setLoading(false)
-      setError('Não foi possível processar a foto. Tente escanear ao vivo ou digitar o código manualmente.')
+      const detail = err?.response?.data?.detail || err?.message || 'falha desconhecida'
+      setError(`Erro ao processar foto: ${detail}. Tente escanear ao vivo ou digitar o código.`)
     }
   }
 

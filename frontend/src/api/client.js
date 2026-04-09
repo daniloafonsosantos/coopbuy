@@ -22,7 +22,7 @@ export const saveBarcodePrice = (code, body) =>
 export const scanBarcodeFromImage = (file) => {
   const fd = new FormData()
   fd.append('file', file)
-  return api.post('/barcode/scan-image', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+  return api.post('/barcode/scan-image', fd, { timeout: 60000 })
 }
 
 export const uploadReceipt = (file) => {
