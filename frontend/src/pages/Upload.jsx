@@ -193,33 +193,38 @@ function TabBarcode() {
   const scanFromPhoto = async (file) => {
     setError(null); setProduct(null); setPrices([]); setSaveResult(null); setNotFound(false)
 
-    // Tenta decode rápido via JS primeiro (sem chamada de rede)
-    let jsDecoded = null
+    // Passo 1: tenta ler o código via JS (rápido, sem rede)
+    let codigoLido = null
     try {
       const scanner = new Html5Qrcode('barcode-photo-scanner')
-      jsDecoded = await scanner.scanFile(file, false)
-    } catch { /* falha silenciosa — vai para Vision */ }
+      codigoLido = await scanner.scanFile(file, false)
+    } catch { /* JS não conseguiu — vai para Vision */ }
 
-    if (jsDecoded) {
-      await handleCode(jsDecoded)
+    if (!codigoLido) {
+      // Passo 2: Vision extrai o número da foto
+      setLoading(true)
+      try {
+        const res = await scanBarcodeFromImage(file)
+        if (res.data.found && res.data.code) {
+          codigoLido = res.data.code
+        }
+      } catch (err) {
+        setLoading(false)
+        const detail = err?.response?.data?.detail || err?.message || 'falha desconhecida'
+        setError(`Erro ao processar foto: ${detail}`)
+        return
+      }
+      setLoading(false)
+    }
+
+    if (!codigoLido) {
+      setError('Não foi possível ler o código de barras da foto. Tente escanear ao vivo ou digitar o código.')
       return
     }
 
-    // JS não conseguiu — envia para Vision extrair o número
-    setLoading(true)
-    try {
-      const res = await scanBarcodeFromImage(file)
-      if (res.data.found && res.data.code) {
-        await handleCode(res.data.code)
-      } else {
-        setLoading(false)
-        setError('Não foi possível ler o código de barras da foto. Tente escanear ao vivo ou digitar o código.')
-      }
-    } catch (err) {
-      setLoading(false)
-      const detail = err?.response?.data?.detail || err?.message || 'falha desconhecida'
-      setError(`Erro ao processar foto: ${detail}. Tente escanear ao vivo ou digitar o código.`)
-    }
+    // Coloca o código no campo e busca — igual a digitar e clicar em Buscar
+    setManualCode(codigoLido)
+    handleCode(codigoLido)
   }
 
   const handleCode = async (barcode) => {
