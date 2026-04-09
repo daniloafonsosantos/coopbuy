@@ -92,6 +92,21 @@ def _try_upc_item_db(code: str) -> dict | None:
     }
 
 
+def _fetch_product_image(name: str, brand: str | None) -> str | None:
+    """Busca imagem do produto no DuckDuckGo Images."""
+    try:
+        from duckduckgo_search import DDGS
+        query = f"{brand} {name}" if brand else name
+        results = list(DDGS().images(query, max_results=3))
+        for r in results:
+            url = r.get("image") or r.get("thumbnail")
+            if url and url.startswith("http"):
+                return url
+    except Exception as exc:
+        logger.debug("Image search failed: %s", exc)
+    return None
+
+
 def _try_openai(code: str) -> dict | None:
     if not settings.openai_api_key:
         return None
@@ -132,12 +147,13 @@ def _try_openai(code: str) -> dict | None:
                 )
                 result = json.loads(parse_resp.choices[0].message.content)
                 if result.get("found") and result.get("name"):
+                    img = _fetch_product_image(result["name"], result.get("brand"))
                     return {
                         "source": "openai_web",
                         "name": result["name"],
                         "brand": result.get("brand") or None,
                         "category": result.get("category") or None,
-                        "image_url": None,
+                        "image_url": img,
                     }
         except Exception as web_exc:
             logger.info("Web search model unavailable, falling back to training knowledge: %s", web_exc)
@@ -160,74 +176,17 @@ def _try_openai(code: str) -> dict | None:
         result = json.loads(resp.choices[0].message.content)
         if not result.get("found") or not result.get("name"):
             return None
+        img = _fetch_product_image(result["name"], result.get("brand"))
         return {
             "source": "openai",
             "name": result["name"],
             "brand": result.get("brand") or None,
             "category": result.get("category") or None,
-            "image_url": None,
+            "image_url": img,
         }
     except Exception as exc:
         logger.warning("OpenAI barcode lookup failed: %s", exc)
         return None
-
-
-@router.get("/{code}")
-def lookup_barcode(code: str, db: Session = Depends(get_db)):
-    """Look up a barcode: local DB → Open Food Facts → UPC Item DB → OpenAI → not found."""
-    if not code.isdigit() or not (8 <= len(code) <= 14):
-        raise HTTPException(400, "Código de barras inválido")
-
-    # 1. Local DB
-    product = db.query(Product).filter(Product.barcode == code).first()
-    if product:
-        prices = (
-            db.query(Price)
-            .filter(Price.product_id == product.id)
-            .order_by(Price.price.asc())
-            .all()
-        )
-        return {
-            "found": True,
-            "source": "local",
-            "product": {
-                "id": product.id,
-                "name": product.normalized_name,
-                "brand": product.brand,
-                "category": product.category,
-                "image_url": product.image_url,
-                "barcode": product.barcode,
-            },
-            "prices": [
-                {"market": p.market.name, "price": float(p.price)}
-                for p in prices
-            ],
-        }
-
-    # 2. External sources
-    info = _try_open_food_facts(code) or _try_upc_item_db(code) or _try_openai(code)
-
-    if not info:
-        return {
-            "found": False,
-            "source": "none",
-            "product": None,
-            "prices": [],
-        }
-
-    return {
-        "found": True,
-        "source": info["source"],
-        "product": {
-            "id": None,
-            "name": info["name"],
-            "brand": info.get("brand"),
-            "category": info.get("category"),
-            "image_url": info.get("image_url"),
-            "barcode": code,
-        },
-        "prices": [],
-    }
 
 
 @router.post("/scan-image")
@@ -275,6 +234,59 @@ async def scan_barcode_from_image(file: UploadFile = File(...)):
     except Exception as exc:
         logger.warning("Vision barcode scan failed: %s", exc)
         raise HTTPException(500, "Erro ao processar imagem com Vision")
+
+
+@router.get("/{code}")
+def lookup_barcode(code: str, db: Session = Depends(get_db)):
+    """Look up a barcode: local DB → Open Food Facts → UPC Item DB → OpenAI → not found."""
+    if not code.isdigit() or not (8 <= len(code) <= 14):
+        raise HTTPException(400, "Código de barras inválido")
+
+    # 1. Local DB
+    product = db.query(Product).filter(Product.barcode == code).first()
+    if product:
+        prices = (
+            db.query(Price)
+            .filter(Price.product_id == product.id)
+            .order_by(Price.price.asc())
+            .all()
+        )
+        return {
+            "found": True,
+            "source": "local",
+            "product": {
+                "id": product.id,
+                "name": product.normalized_name,
+                "brand": product.brand,
+                "category": product.category,
+                "image_url": product.image_url,
+                "barcode": product.barcode,
+            },
+            "prices": [
+                {"market": p.market.name, "price": float(p.price)}
+                for p in prices
+            ],
+        }
+
+    # 2. External sources
+    info = _try_open_food_facts(code) or _try_upc_item_db(code) or _try_openai(code)
+
+    if not info:
+        return {"found": False, "source": "none", "product": None, "prices": []}
+
+    return {
+        "found": True,
+        "source": info["source"],
+        "product": {
+            "id": None,
+            "name": info["name"],
+            "brand": info.get("brand"),
+            "category": info.get("category"),
+            "image_url": info.get("image_url"),
+            "barcode": code,
+        },
+        "prices": [],
+    }
 
 
 @router.post("/{code}/price")
