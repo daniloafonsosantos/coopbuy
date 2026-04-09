@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
+import base64
 import httpx
 import json
 import logging
@@ -227,6 +228,53 @@ def lookup_barcode(code: str, db: Session = Depends(get_db)):
         },
         "prices": [],
     }
+
+
+@router.post("/scan-image")
+async def scan_barcode_from_image(file: UploadFile = File(...)):
+    """Use OpenAI Vision to detect a barcode number from a photo."""
+    if not settings.openai_api_key:
+        raise HTTPException(400, "OpenAI não configurado")
+
+    image_bytes = await file.read()
+    image_b64 = base64.b64encode(image_bytes).decode()
+    content_type = file.content_type or "image/jpeg"
+
+    try:
+        import openai
+        client = openai.OpenAI(api_key=settings.openai_api_key)
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Leia o código de barras nesta imagem. "
+                            "Responda SOMENTE com o número do código (apenas dígitos, sem espaços ou traços). "
+                            "Se não houver código de barras visível ou legível, responda exatamente: NOT_FOUND"
+                        ),
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{content_type};base64,{image_b64}",
+                            "detail": "high",
+                        },
+                    },
+                ],
+            }],
+            max_tokens=50,
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        digits = "".join(c for c in raw if c.isdigit())
+        if not digits or "NOT_FOUND" in raw.upper():
+            return {"found": False, "code": None}
+        return {"found": True, "code": digits}
+    except Exception as exc:
+        logger.warning("Vision barcode scan failed: %s", exc)
+        raise HTTPException(500, "Erro ao processar imagem com Vision")
 
 
 @router.post("/{code}/price")

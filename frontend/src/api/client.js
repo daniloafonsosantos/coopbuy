@@ -19,6 +19,11 @@ export const lookupBarcode = (code) =>
   api.get(`/barcode/${encodeURIComponent(code)}`)
 export const saveBarcodePrice = (code, body) =>
   api.post(`/barcode/${encodeURIComponent(code)}/price`, body)
+export const scanBarcodeFromImage = (file) => {
+  const fd = new FormData()
+  fd.append('file', file)
+  return api.post('/barcode/scan-image', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+}
 
 export const uploadReceipt = (file) => {
   const fd = new FormData()

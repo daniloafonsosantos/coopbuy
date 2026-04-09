@@ -5,7 +5,7 @@ import {
   AlertCircle, X, ArrowRight, DollarSign, ShoppingBag, RotateCcw,
   Image as ImageIcon, PenLine,
 } from 'lucide-react'
-import { uploadReceipt, lookupBarcode, saveBarcodePrice, getMarkets } from '../api/client'
+import { uploadReceipt, lookupBarcode, saveBarcodePrice, getMarkets, scanBarcodeFromImage } from '../api/client'
 
 const fmt = (v) =>
   Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -205,8 +205,19 @@ function TabBarcode() {
       const decoded = await scanner.scanFile(file, false)
       handleCode(decoded)
     } catch {
-      setLoading(false)
-      setError('Não foi possível ler o código da foto. Tente escanear ao vivo ou digitar o código manualmente.')
+      // Html5Qrcode couldn't decode — fallback to OpenAI Vision
+      try {
+        const res = await scanBarcodeFromImage(file)
+        if (res.data.found && res.data.code) {
+          handleCode(res.data.code)
+        } else {
+          setLoading(false)
+          setError('Não foi possível ler o código da foto. Tente escanear ao vivo ou digitar o código manualmente.')
+        }
+      } catch {
+        setLoading(false)
+        setError('Não foi possível ler o código da foto. Tente escanear ao vivo ou digitar o código manualmente.')
+      }
     }
   }
 
