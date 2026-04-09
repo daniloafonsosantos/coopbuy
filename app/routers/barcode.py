@@ -98,33 +98,33 @@ def _try_openai(code: str) -> dict | None:
         import openai
         client = openai.OpenAI(api_key=settings.openai_api_key)
 
-        # First try web search (responses API with grounding)
+        # Try web search via gpt-4o-search-preview (chat completions, no special API needed)
         try:
-            web_resp = client.responses.create(
-                model="gpt-4o-mini",
-                tools=[{"type": "web_search_preview"}],
-                input=(
-                    f"Qual é o produto com código de barras EAN {code} vendido no Brasil? "
-                    "Pesquise na web e responda com nome, marca e categoria do produto. "
-                    "Se não encontrar nada concreto, diga que não sabe."
-                ),
+            web_resp = client.chat.completions.create(
+                model="gpt-4o-search-preview",
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"Pesquise na web: qual produto tem o código de barras EAN {code} vendido no Brasil? "
+                        "Responda com nome do produto, marca e categoria."
+                    )
+                }],
+                max_tokens=300,
             )
-            web_text = "".join(
-                block.text for block in web_resp.output
-                if hasattr(block, "text")
-            ).strip()
-            if web_text and "não sei" not in web_text.lower() and "not found" not in web_text.lower():
+            web_text = (web_resp.choices[0].message.content or "").strip()
+            if web_text and len(web_text) > 20:
                 # Parse the natural language answer into structured JSON
                 parse_resp = client.chat.completions.create(
                     model="gpt-4o-mini",
-                    messages=[
-                        {"role": "user", "content":
+                    messages=[{
+                        "role": "user",
+                        "content": (
                             f"Com base nesta descrição de produto: '{web_text}'\n"
                             "Extraia nome, marca e categoria. "
                             'Responda SOMENTE com JSON: {"name":"...","brand":"...","category":"...","found":true}. '
-                            "Se não houver informação suficiente, retorne found:false."
-                        }
-                    ],
+                            "Se não houver informação suficiente para identificar o produto, retorne found:false."
+                        )
+                    }],
                     response_format={"type": "json_object"},
                     temperature=0,
                     max_tokens=150,
@@ -139,7 +139,7 @@ def _try_openai(code: str) -> dict | None:
                         "image_url": None,
                     }
         except Exception as web_exc:
-            logger.info("Web search unavailable, falling back to training knowledge: %s", web_exc)
+            logger.info("Web search model unavailable, falling back to training knowledge: %s", web_exc)
 
         # Fallback: training knowledge only
         prompt = (
