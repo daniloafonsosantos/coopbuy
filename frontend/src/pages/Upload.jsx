@@ -160,6 +160,7 @@ function TabBarcode() {
   const [regCategory, setRegCategory] = useState('')
   const [markets, setMarkets] = useState([])
   const [locating, setLocating] = useState(false)
+  const [nearbyList, setNearbyList] = useState([])
   const html5QrRef = useRef(null)
   const photoInputRef = useRef(null)
 
@@ -170,26 +171,40 @@ function TabBarcode() {
   const detectNearbyMarket = useCallback(async () => {
     if (!navigator.geolocation) { setError('Geolocalização não suportada neste navegador.'); return }
     setLocating(true)
+    setNearbyList([])
     try {
       const pos = await new Promise((res, rej) =>
         navigator.geolocation.getCurrentPosition(res, rej, { timeout: 10000 })
       )
       const { latitude: lat, longitude: lon } = pos.coords
-      // Overpass API: supermercados num raio de 500m
-      const query = `[out:json][timeout:10];(node["shop"~"supermarket|convenience|grocery|mini_market|general|market|food|variety_store|department_store"](around:500,${lat},${lon});way["shop"~"supermarket|convenience|grocery|mini_market|general|market|food|variety_store|department_store"](around:500,${lat},${lon});node["amenity"="marketplace"](around:500,${lat},${lon}););out center 5;`
+      const query = `[out:json][timeout:15];(node["shop"~"supermarket|convenience|grocery|mini_market|general|market|food|variety_store|department_store"](around:500,${lat},${lon});way["shop"~"supermarket|convenience|grocery|mini_market|general|market|food|variety_store|department_store"](around:500,${lat},${lon});node["amenity"="marketplace"](around:500,${lat},${lon}););out center 10;`
       const r = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST', body: `data=${encodeURIComponent(query)}`
       })
       const data = await r.json()
       const elements = data.elements || []
-      if (elements.length === 0) { setError('Nenhum supermercado encontrado num raio de 500m.'); return }
-      // Pega o mais próximo (primeiro resultado do Overpass já é o mais próximo)
-      const nome = elements[0].tags?.name || elements[0].tags?.['brand:pt'] || elements[0].tags?.brand || 'Supermercado'
-      setMarket(nome)
+      if (elements.length === 0) { setError('Nenhum estabelecimento encontrado num raio de 500m.'); return }
+      // Calcular distância de cada elemento
+      const lista = elements
+        .filter(el => el.tags?.name)
+        .map(el => {
+          const elLat = el.lat ?? el.center?.lat
+          const elLon = el.lon ?? el.center?.lon
+          const dist = elLat && elLon
+            ? Math.round(Math.sqrt((elLat - lat) ** 2 + (elLon - lon) ** 2) * 111320)
+            : null
+          return {
+            name: el.tags.name,
+            type: el.tags.shop || el.tags.amenity || '',
+            dist,
+          }
+        })
+        .sort((a, b) => (a.dist ?? 9999) - (b.dist ?? 9999))
+      setNearbyList(lista)
     } catch (e) {
       if (e.code === 1) setError('Permissão de localização negada.')
       else if (e.code === 3) setError('Tempo esgotado ao obter localização.')
-      else setError('Não foi possível detectar o mercado próximo.')
+      else setError('Não foi possível detectar estabelecimentos próximos.')
     } finally {
       setLocating(false)
     }
@@ -319,10 +334,45 @@ function TabBarcode() {
     setProduct(null); setPrices([]); setCode(''); setManualCode('')
     setError(null); setSaveResult(null); setPrice(''); setMarket('')
     setNotFound(false); setRegName(''); setRegBrand(''); setRegCategory('')
+    setNearbyList([])
   }
 
   return (
     <div className="space-y-4">
+      {/* Modal de seleção de estabelecimento próximo */}
+      {nearbyList.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4 pb-4 sm:pb-0"
+          onClick={() => setNearbyList([])}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <p className="font-semibold text-gray-800 text-sm flex items-center gap-2">
+                <MapPin size={16} className="text-emerald-600" /> Estabelecimentos próximos
+              </p>
+              <button onClick={() => setNearbyList([])} className="text-gray-400 hover:text-gray-600">
+                <X size={18} />
+              </button>
+            </div>
+            <ul className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
+              {nearbyList.map((item, i) => (
+                <li key={i}>
+                  <button
+                    className="w-full text-left px-4 py-3 hover:bg-emerald-50 transition-colors flex items-center justify-between gap-3"
+                    onClick={() => { setMarket(item.name); setNearbyList([]) }}>
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">{item.name}</p>
+                      <p className="text-xs text-gray-400 capitalize">{item.type}</p>
+                    </div>
+                    {item.dist != null && (
+                      <span className="text-xs text-emerald-600 font-semibold shrink-0">{item.dist}m</span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
       {!product && !loading && (
         <>
           {scanning ? (
