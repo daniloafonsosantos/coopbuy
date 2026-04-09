@@ -177,7 +177,7 @@ function TabBarcode() {
         navigator.geolocation.getCurrentPosition(res, rej, { timeout: 10000 })
       )
       const { latitude: lat, longitude: lon } = pos.coords
-      const query = `[out:json][timeout:15];(node["shop"~"supermarket|convenience|grocery|mini_market|general|market|food|variety_store|department_store"](around:500,${lat},${lon});way["shop"~"supermarket|convenience|grocery|mini_market|general|market|food|variety_store|department_store"](around:500,${lat},${lon});node["amenity"="marketplace"](around:500,${lat},${lon}););out center 10;`
+      const query = `[out:json][timeout:15];(node["shop"](around:500,${lat},${lon});way["shop"](around:500,${lat},${lon});node["amenity"~"marketplace|food_court|fast_food|cafe"](around:500,${lat},${lon}););out center 10;`
       const r = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST', body: `data=${encodeURIComponent(query)}`
       })
