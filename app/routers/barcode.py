@@ -231,8 +231,8 @@ def lookup_barcode(code: str, db: Session = Depends(get_db)):
 
 
 @router.post("/scan-image")
-async def scan_barcode_from_image(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """Vision: read barcode from photo + full product lookup + visual identification if not found."""
+async def scan_barcode_from_image(file: UploadFile = File(...)):
+    """Usa Vision da OpenAI para extrair APENAS o número do código de barras da foto."""
     if not settings.openai_api_key:
         raise HTTPException(400, "OpenAI não configurado")
 
@@ -240,11 +240,10 @@ async def scan_barcode_from_image(file: UploadFile = File(...), db: Session = De
     image_b64 = base64.b64encode(image_bytes).decode()
     content_type = file.content_type or "image/jpeg"
 
-    # Step 1: ONE Vision call — read barcode AND visually identify the product
     try:
         import openai
         client = openai.OpenAI(api_key=settings.openai_api_key)
-        vision_resp = client.chat.completions.create(
+        resp = client.chat.completions.create(
             model="gpt-4o",
             messages=[{
                 "role": "user",
@@ -252,11 +251,9 @@ async def scan_barcode_from_image(file: UploadFile = File(...), db: Session = De
                     {
                         "type": "text",
                         "text": (
-                            "Analise esta imagem de produto. Responda SOMENTE com JSON válido:\n"
-                            '{"barcode": "<apenas dígitos do código de barras, ou null se não visível>",'
-                            ' "name": "<nome completo do produto>",'
-                            ' "brand": "<marca ou null>",'
-                            ' "category": "<categoria como Alimentos, Bebidas, Limpeza, Higiene, etc. ou null>"}'
+                            "Leia o código de barras nesta imagem. "
+                            "Responda SOMENTE com o número do código (apenas dígitos, sem espaços ou traços). "
+                            "Se não houver código de barras visível ou legível, responda exatamente: NOT_FOUND"
                         ),
                     },
                     {
@@ -268,68 +265,16 @@ async def scan_barcode_from_image(file: UploadFile = File(...), db: Session = De
                     },
                 ],
             }],
-            response_format={"type": "json_object"},
-            max_tokens=200,
+            max_tokens=50,
         )
-        parsed = json.loads(vision_resp.choices[0].message.content or "{}")
+        raw = (resp.choices[0].message.content or "").strip()
+        digits = "".join(c for c in raw if c.isdigit())
+        if not digits or "NOT_FOUND" in raw.upper():
+            return {"found": False, "code": None}
+        return {"found": True, "code": digits}
     except Exception as exc:
-        logger.warning("Vision scan failed: %s", exc)
+        logger.warning("Vision barcode scan failed: %s", exc)
         raise HTTPException(500, "Erro ao processar imagem com Vision")
-
-    raw_barcode = "".join(c for c in (parsed.get("barcode") or "") if c.isdigit())
-    barcode = raw_barcode if 8 <= len(raw_barcode) <= 14 else None
-    hint = {
-        "name": parsed.get("name") or None,
-        "brand": parsed.get("brand") or None,
-        "category": parsed.get("category") or None,
-    }
-
-    if not barcode:
-        # No barcode found — return visual hints so the form can be pre-filled
-        return {
-            "barcode_found": False, "code": None,
-            "found": False, "source": "none",
-            "product": None, "prices": [], "hint": hint,
-        }
-
-    # Step 2: Full product lookup by barcode (same chain as GET /{code})
-    product = db.query(Product).filter(Product.barcode == barcode).first()
-    if product:
-        prices = (
-            db.query(Price).filter(Price.product_id == product.id)
-            .order_by(Price.price.asc()).all()
-        )
-        return {
-            "barcode_found": True, "code": barcode,
-            "found": True, "source": "local",
-            "product": {
-                "id": product.id, "name": product.normalized_name,
-                "brand": product.brand, "category": product.category,
-                "image_url": product.image_url, "barcode": product.barcode,
-            },
-            "prices": [{"market": p.market.name, "price": float(p.price)} for p in prices],
-            "hint": None,
-        }
-
-    info = _try_open_food_facts(barcode) or _try_upc_item_db(barcode) or _try_openai(barcode)
-    if info:
-        return {
-            "barcode_found": True, "code": barcode,
-            "found": True, "source": info["source"],
-            "product": {
-                "id": None, "name": info["name"],
-                "brand": info.get("brand"), "category": info.get("category"),
-                "image_url": info.get("image_url"), "barcode": barcode,
-            },
-            "prices": [], "hint": None,
-        }
-
-    # Product not found — return barcode + visual hints for registration form
-    return {
-        "barcode_found": True, "code": barcode,
-        "found": False, "source": "none",
-        "product": None, "prices": [], "hint": hint,
-    }
 
 
 @router.post("/{code}/price")

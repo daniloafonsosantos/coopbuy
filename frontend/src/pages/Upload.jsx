@@ -193,49 +193,33 @@ function TabBarcode() {
   const scanFromPhoto = async (file) => {
     setError(null); setProduct(null); setPrices([]); setSaveResult(null); setNotFound(false)
 
-    // Step 1: Tentar decode rápido via JS (sem chamada de rede)
+    // Tenta decode rápido via JS primeiro (sem chamada de rede)
     let jsDecoded = null
     try {
       const scanner = new Html5Qrcode('barcode-photo-scanner')
       jsDecoded = await scanner.scanFile(file, false)
-    } catch { /* falha silenciosa — vai até Vision */ }
+    } catch { /* falha silenciosa — vai para Vision */ }
 
     if (jsDecoded) {
-      // JS conseguiu ler o código → fluxo normal de busca
+      // JS leu o código — usa o mesmo fluxo do scanner ao vivo
       handleCode(jsDecoded)
       return
     }
 
-    // Step 2: Vision — lê código de barras + identifica produto visualmente
+    // JS não conseguiu — envia para Vision extrair o número
     setLoading(true)
     try {
       const res = await scanBarcodeFromImage(file)
-      const d = res.data
-
-      if (d.found && d.product) {
-        // Produto encontrado!
-        setCode(d.code || '')
-        setProduct(d.product)
-        setPrices(d.prices || [])
+      if (res.data.found && res.data.code) {
+        // Vision achou o código — usa o mesmo fluxo do scanner ao vivo
+        handleCode(res.data.code)
       } else {
-        // Produto não encontrado — pré-preenche o formulário de cadastro
-        // com código (se lido) e identificação visual da IA
-        if (d.code) setCode(d.code)
-        if (d.hint?.name) setRegName(d.hint.name)
-        if (d.hint?.brand) setRegBrand(d.hint.brand)
-        if (d.hint?.category) setRegCategory(d.hint.category)
-
-        if (d.barcode_found || d.hint?.name) {
-          // Tem alguma informação — mostra formulário de cadastro
-          setNotFound(true)
-        } else {
-          setError('Não foi possível identificar o produto na foto. Tente escanear ao vivo ou digitar o código manualmente.')
-        }
+        setLoading(false)
+        setError('Não foi possível ler o código da foto. Tente escanear ao vivo ou digitar o código manualmente.')
       }
     } catch {
-      setError('Não foi possível processar a foto. Tente escanear ao vivo ou digitar o código manualmente.')
-    } finally {
       setLoading(false)
+      setError('Não foi possível processar a foto. Tente escanear ao vivo ou digitar o código manualmente.')
     }
   }
 
