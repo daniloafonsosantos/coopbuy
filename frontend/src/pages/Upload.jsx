@@ -192,32 +192,50 @@ function TabBarcode() {
 
   const scanFromPhoto = async (file) => {
     setError(null); setProduct(null); setPrices([]); setSaveResult(null); setNotFound(false)
-    // Instantiate BEFORE setLoading — the div must still be in the DOM
-    let scanner
+
+    // Step 1: Tentar decode rápido via JS (sem chamada de rede)
+    let jsDecoded = null
     try {
-      scanner = new Html5Qrcode('barcode-photo-scanner')
-    } catch {
-      setError('Erro ao inicializar o leitor de código. Tente escanear ao vivo.')
+      const scanner = new Html5Qrcode('barcode-photo-scanner')
+      jsDecoded = await scanner.scanFile(file, false)
+    } catch { /* falha silenciosa — vai até Vision */ }
+
+    if (jsDecoded) {
+      // JS conseguiu ler o código → fluxo normal de busca
+      handleCode(jsDecoded)
       return
     }
+
+    // Step 2: Vision — lê código de barras + identifica produto visualmente
     setLoading(true)
     try {
-      const decoded = await scanner.scanFile(file, false)
-      handleCode(decoded)
-    } catch {
-      // Html5Qrcode couldn't decode — fallback to OpenAI Vision
-      try {
-        const res = await scanBarcodeFromImage(file)
-        if (res.data.found && res.data.code) {
-          handleCode(res.data.code)
+      const res = await scanBarcodeFromImage(file)
+      const d = res.data
+
+      if (d.found && d.product) {
+        // Produto encontrado!
+        setCode(d.code || '')
+        setProduct(d.product)
+        setPrices(d.prices || [])
+      } else {
+        // Produto não encontrado — pré-preenche o formulário de cadastro
+        // com código (se lido) e identificação visual da IA
+        if (d.code) setCode(d.code)
+        if (d.hint?.name) setRegName(d.hint.name)
+        if (d.hint?.brand) setRegBrand(d.hint.brand)
+        if (d.hint?.category) setRegCategory(d.hint.category)
+
+        if (d.barcode_found || d.hint?.name) {
+          // Tem alguma informação — mostra formulário de cadastro
+          setNotFound(true)
         } else {
-          setLoading(false)
-          setError('Não foi possível ler o código da foto. Tente escanear ao vivo ou digitar o código manualmente.')
+          setError('Não foi possível identificar o produto na foto. Tente escanear ao vivo ou digitar o código manualmente.')
         }
-      } catch {
-        setLoading(false)
-        setError('Não foi possível ler o código da foto. Tente escanear ao vivo ou digitar o código manualmente.')
       }
+    } catch {
+      setError('Não foi possível processar a foto. Tente escanear ao vivo ou digitar o código manualmente.')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -362,8 +380,12 @@ function TabBarcode() {
       {loading && (
         <div className="flex flex-col items-center py-16 gap-3">
           <div className="w-10 h-10 border-4 border-emerald-100 border-t-emerald-500 rounded-full animate-spin" />
-          <p className="text-sm text-gray-500">Buscando <strong>{code}</strong>...</p>
-          <p className="text-xs text-gray-400">Consultando múltiplas bases de dados</p>
+          <p className="text-sm text-gray-500">
+            {code ? <>Buscando <strong>{code}</strong>...</> : 'Analisando imagem com IA...'}
+          </p>
+          <p className="text-xs text-gray-400">
+            {code ? 'Consultando múltiplas bases de dados' : 'Identificando produto e código de barras'}
+          </p>
         </div>
       )}
 
