@@ -176,7 +176,7 @@ function TabBarcode() {
       )
       const { latitude: lat, longitude: lon } = pos.coords
       // Overpass API: supermercados num raio de 500m
-      const query = `[out:json][timeout:10];(node["shop"~"supermarket|convenience|grocery"](around:500,${lat},${lon});way["shop"~"supermarket|convenience|grocery"](around:500,${lat},${lon}););out center 5;`
+      const query = `[out:json][timeout:10];(node["shop"~"supermarket|convenience|grocery|mini_market|general|market|food|variety_store|department_store"](around:500,${lat},${lon});way["shop"~"supermarket|convenience|grocery|mini_market|general|market|food|variety_store|department_store"](around:500,${lat},${lon});node["amenity"="marketplace"](around:500,${lat},${lon}););out center 5;`
       const r = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST', body: `data=${encodeURIComponent(query)}`
       })
